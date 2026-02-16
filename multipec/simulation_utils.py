@@ -247,38 +247,45 @@ def threshold(errors_list, sigmas):
         return float(av+std*sigmas)
 
 def PEC_pairs(channels_dict):
-    subset = list(channels_dict.keys())
-    ch_ids,register = list(permutations(list(subset), 2)),{}
-    for c in ch_ids:
-        group = list(channels_dict[ci] for ci in c)
+    subset = tuple(channels_dict.keys())
+    register = {}
+    for c0, c1 in permutations(subset, 2):
+        group = [channels_dict[c0], channels_dict[c1]]
         data = create(group)
         awc = AWC(bits=2, time=6)
         R = awc.learn(data.serialized)
-        r = np.average(R['error'].deserialized[1])
-        register[c]=float(r)
-        # print("processed... ",c," error: ",register[c])
-    return(register)
+        r = np.mean(R["error"].deserialized[1])
+        register[(c0, c1)] = float(r)
+    return register
 
 def direct(register, channels):
-    subset = channels
     directed_pairs = {}
-    for p in list(combinations(subset,2)):
-        if register[(p[0],p[1])] < register[(p[1],p[0])]: directed_pairs[p]=register[(p)]
-        elif register[(p[0],p[1])] > register[(p[1],p[0])]: directed_pairs[(p[1],p[0])]=register[(p[1],p[0])]
-        else: directed_pairs[p]=register[(p)]; directed_pairs[(p[1],p[0])]=register[(p[1],p[0])]; print(p)
+    for a, b in combinations(channels, 2):
+        ab = register[(a, b)]
+        ba = register[(b, a)]
+
+        if ab < ba:
+            directed_pairs[(a, b)] = ab
+        elif ba < ab:
+            directed_pairs[(b, a)] = ba
+        else:
+            directed_pairs[(a, b)] = ab
+            # directed_pairs[(b, a)] = ba
+            # print((a, b), "and", (b, a), "have the same error:", ab)
     return directed_pairs
 
 def PEC_multi(subset, n, seeds, nodes):
-    ch_ids,register,candidates_ids = permutations(list(subset), n),{},[]
-    for p in ch_ids:
-        if p[:-1]==nodes: candidates_ids.append(p)
-    for c in candidates_ids:
-        group = list(seeds[ci] for ci in c)
+    register = {}
+    nodes = tuple(nodes)
+    remaining = [x for x in subset if x not in nodes]
+    for new_node in remaining:
+        c = nodes + (new_node,)
+        group = [seeds[ci] for ci in c]
         data = create(group)
         awc = AWC(bits=n, time=6)
         R = awc.learn(data.serialized)
-        r = np.average(R['error'].deserialized[1])
-        register[c]=float(r)
+        r = np.mean(R["error"].deserialized[1])
+        register[c] = float(r)
     return register
 
 def nets_from_pairs(directed_pairs, labels_list, sigmas):
@@ -434,44 +441,50 @@ def subnets_ni(channels_dict, labels_list, directed_pairs, nonselected_nodes):
     print("all nodes selected")
     return output
 
-def multipec(channels_dict, labels_list, pairs, nonselected_nodes, limit=False, n_nets=10):
-    seeds, pairs, pool = deepcopy(channels_dict), deepcopy(pairs), deepcopy(nonselected_nodes)
-    remaining_pairs = list(pairs.keys())
-    print(remaining_pairs)
+def multipec(channels_dict, pairs, nonselected_nodes, limit=False, n_nets=10):
+    # Read-only references
+    seeds = channels_dict
+    pool = tuple(nonselected_nodes)
+    # Mutable local state
+    remaining_pairs = list(pairs)
     output = []
-    for i in range(n_nets):
 
-          print("starting a new subnetwork... ")
-          n, connectivity, nodes, result = 2, {}, [], []
-          subset = deepcopy(pool)
+    for _ in range(n_nets):
+        if not remaining_pairs:
+            break
+        print("starting a new subnetwork...")
+        n = 2
+        nodes = ()
+        result = []
 
-          n_max = len(subset)
-          if type(limit)==int:
-              n_max = limit if limit<len(subset) else len(subset)
-              print(f'network size limit = {n_max}')
+        n_max = len(pool)
+        if isinstance(limit, int):
+            n_max = min(limit, n_max)
+            print(f"network size limit = {n_max}")
 
-          while n<=n_max:
-              if n==2: connectivity = {i:pairs[i] for i in pairs if i in remaining_pairs}
-              elif n>2: connectivity = PEC_multi(subset, n, seeds, nodes)
-              result.append(min(connectivity.items(), key=lambda x: x[1]))
-              errors = list(tup[1] for tup in result)
-              if len(errors)>1 and errors[-1]>errors[-2]:
-                  print("moving average increased ", errors[-2], "<", errors[-1])
-                  del result[-1]
-                  nodes=result[-1][0]
-                  n=n_max+1
-              else:
-                  nodes=result[-1][0]
-                  n+=1
-                  print("adding nodes...")
+        while n <= n_max:
+            if n == 2:
+                # Only consider still-available seed pairs
+                connectivity = {p: pairs[p] for p in remaining_pairs}
+            else: connectivity = PEC_multi(pool, n, seeds, nodes)
+            # Best candidate
+            best_nodes, best_err = min(connectivity.items(), key=lambda x: x[1])
+            result.append((best_nodes, best_err))
+            # Stopping criterion
+            if len(result) > 1 and best_err > result[-2][1]:
+                print("PEC increased:", result[-2][1], "<", best_err)
+                result.pop()
+                nodes = result[-1][0]
+                break
+            nodes = best_nodes
+            n += 1
+            print("adding nodes...")
+        if not result: break
 
-          subnet = nodes
-          print(result, subnet)
-          if len(result)==0: break
-          err_evolution = [float(e[1]) for e in result]
-          output.append((subnet, err_evolution))
-          if (nodes[0],nodes[1]) in remaining_pairs: remaining_pairs.remove((nodes[0],nodes[1]))
-
-    if output[-1]==[]: output.pop()
-    print(f"{n_nets} iterations finished")
+        subnet = nodes
+        err_evolution = [err for _, err in result]
+        output.append((subnet, err_evolution))
+        # Remove used seed pair
+        seed_pair = subnet[:2]
+        if seed_pair in remaining_pairs: remaining_pairs.remove(seed_pair)
     return output
