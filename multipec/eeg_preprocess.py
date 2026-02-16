@@ -41,6 +41,9 @@ def preprocess_eeg(file, path_load_data, path_save_data):
                 parts = line.strip().split(",")
                 event_markers.append((parts[1], int(parts[2])))
 
+    resample_factor = new_fs / 500  # 0.5
+    event_markers = [(event, int(sample * resample_factor)) for event, sample in event_markers]
+
     stim_types = ['S  1', 'S  2', 'S  3', 'S  4', 'S  5', 'S  6', 'S  7']
     for stim_type in stim_types:
         stim_type_str = stim_type.replace(" ", "")
