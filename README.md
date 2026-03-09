@@ -23,4 +23,5 @@ pip install -e .
 ## Contributors
 Karla Ivankovic — Project lead and primary developer. Responsible for the full design and implementation of xPEC, including core architecture, algorithm development, data processing pipelines, testing and validation, backend, frontend, and documentation.
 <br>
+<br>
 Alessandro Principe — Author of the PEC algorithm, implemented in utils.py.
