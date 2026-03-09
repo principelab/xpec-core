@@ -18,3 +18,9 @@ cd xpec-core
 conda create -n xpec python=3.10
 conda activate xpec
 pip install -e .
+```
+
+## Contributors
+Karla Ivankovic — Project lead and primary developer. Responsible for the full design and implementation of xPEC, including core architecture, algorithm development, data processing pipelines, testing and validation, backend, frontend, and documentation.
+<br>
+Alessandro Principe — Author of the PEC algorithm, implemented in utils.py.
